@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>{{ form_obj.title }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .form-card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        .field-group {
+            margin-bottom: 1.5rem;
+        }
+        .choices-group {
+            margin-top: 0.5rem;
+            padding-left: 1.5rem;
+        }
+    </style>
+    {% if form_obj.recaptcha_enabled and recaptcha_site_key %}
+    <script src="https://www.google.com/recaptcha/api.js" async defer></script>
+    {% endif %}
+</head>
+<body class="bg-light">
+<div class="container py-5">
+    <div class="form-card">
+        <h2 class="mb-3">{{ form_obj.title }}</h2>
+        {% if form_obj.description %}
+        <p class="text-muted mb-4">{{ form_obj.description }}</p>
+        {% endif %}
+
+        <form method="POST" id="submission-form">
+            {% csrf_token %}
+
+            <!-- User Email (always shown) -->
+            <div class="mb-4 field-group">
+                <label for="user_email" class="form-label fw-bold">Your Email Address *</label>
+                <input type="email" id="user_email" name="user_email" class="form-control form-control-lg" required>
+            </div>
+
+            <!-- Dynamic Fields -->
+            {% for field in fields %}
+            <div class="mb-4 field-group">
+                <label for="field_{{ field.id }}" class="form-label fw-bold">
+                    {{ field.label }}
+                    {% if field.required %}*{% endif %}
+                </label>
+
+                {% if field.field_type == 'textarea' %}
+                    <textarea id="field_{{ field.id }}" name="{{ field.label }}" 
+                        class="form-control" rows="4" {% if field.required %}required{% endif %}></textarea>
+
+                {% elif field.field_type == 'radio' %}
+                    <div class="choices-group">
+                        {% for choice in field.choices_list %}
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" 
+                                id="field_{{ field.id }}_{{ forloop.counter }}" 
+                                name="{{ field.label }}" 
+                                value="{{ choice }}"
+                                {% if field.required %}required{% endif %}>
+                            <label class="form-check-label" for="field_{{ field.id }}_{{ forloop.counter }}">
+                                {{ choice }}
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                {% elif field.field_type == 'checkbox' %}
+                    <div class="choices-group">
+                        {% for choice in field.choices_list %}
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox"
+                                id="field_{{ field.id }}_{{ forloop.counter }}"
+                                name="{{ field.label }}"
+                                value="{{ choice }}">
+                            <label class="form-check-label" for="field_{{ field.id }}_{{ forloop.counter }}">
+                                {{ choice }}
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                {% else %}
+                    <input type="{{ field.field_type }}" id="field_{{ field.id }}"
+                        name="{{ field.label }}"
+                        class="form-control"
+                        {% if field.required %}required{% endif %}>
+                {% endif %}
+            </div>
+            {% endfor %}
+
+            <!-- reCAPTCHA -->
+            {% if form_obj.recaptcha_enabled and recaptcha_site_key %}
+            <div class="g-recaptcha mb-4" data-sitekey="{{ recaptcha_site_key }}"></div>
+            {% endif %}
+
+            <!-- Submit Button -->
+            <div class="d-grid gap-2">
+                <button type="submit" class="btn btn-primary btn-lg">
+                    Submit Form
+                </button>
+            </div>
+
+            <!-- Status Messages -->
+            {% if success %}
+            <div class="alert alert-success mt-4">
+                <i class="bi bi-check-circle-fill"></i> {{ success }}
+            </div>
+            {% endif %}
+
+            {% if error %}
+            <div class="alert alert-danger mt-4">
+                <i class="bi bi-exclamation-triangle-fill"></i> {{ error }}
+            </div>
+            {% endif %}
+
+            {% if warning %}
+            <div class="alert alert-warning mt-4">
+                <i class="bi bi-exclamation-triangle-fill"></i> {{ warning }}
+            </div>
+            {% endif %}
+        </form>
+    </div>
+
+    <!-- Admin Controls -->
+    {% if request.user.is_staff %}
+    <div class="admin-actions mt-4">
+        <form method="POST" action="{% url 'delete_form' form_obj.id %}" class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-danger" 
+                onclick="return confirm('Are you sure you want to delete this form?')">
+                Delete Form
+            </button>
+        </form>
+        <a href="{% url 'edit_form' form_obj.id %}" class="btn btn-outline-secondary">
+            Edit Form
+        </a>
+        <a href="{% url 'manage_notifications' form_obj.id %}" class="btn btn-outline-info">
+            Manage Notifications
+        </a>
+    </div>
+    {% endif %}
+
+    {% if form_obj.email_confirmation_required %}
+    <div class="alert alert-info mt-4">
+        <i class="bi bi-envelope-fill"></i> You'll receive an email confirmation after submission.
+    </div>
+    {% endif %}
+</div>
+
+<script>
+    // Enhance form validation
+    document.getElementById('submission-form').addEventListener('submit', function(e) {
+        const emailField = document.getElementById('user_email');
+        if (!emailField.value.trim()) {
+            alert('Please enter your email address');
+            e.preventDefault();
+            return;
+        }
+
+        // Validate required fields
+        const requiredFields = document.querySelectorAll('[required]');
+        let isValid = true;
+        
+        requiredFields.forEach(field => {
+            if (!field.value.trim()) {
+                field.classList.add('is-invalid');
+                isValid = false;
+            } else {
+                field.classList.remove('is-invalid');
+            }
+        });
+
+       document.querySelectorAll('input[type="text"], input[type="email"], textarea').forEach(field => {
+        const regexPattern = field.dataset.regex;
+        const errorMessage = field.dataset.regexError;
+        
+        if (regexPattern && field.value.trim()) {
+            try {
+                const regex = new RegExp(regexPattern);
+                if (!regex.test(field.value.trim())) {
+                    field.classList.add('is-invalid');
+                    if (errorMessage) {
+                        const errorElement = document.createElement('div');
+                        errorElement.className = 'invalid-feedback';
+                        errorElement.textContent = errorMessage;
+                        field.parentNode.appendChild(errorElement);
+                    }
+                    isValid = false;
+                }
+            } catch (e) {
+                console.error('Invalid regex pattern:', e);
+            }
+        }
+    });
+
+    if (!isValid) {
+        alert('Please correct the errors in the form');
+        e.preventDefault();
+    }
+});
+
+    // Add Bootstrap validation classes
+    document.querySelectorAll('input, textarea, select').forEach(element => {
+        element.addEventListener('input', function() {
+            if (this.hasAttribute('required') && !this.value.trim()) {
+                this.classList.add('is-invalid');
+            } else {
+                this.classList.remove('is-invalid');
+            }
+        });
+    });
+</script>
+</body>
+</html>

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Manage Notifications - {{ form.title }}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .smtp-badge {
+      font-size: 0.8rem;
+      background-color: #6c757d;
+    }
+    .verified-badge {
+      background-color: #198754;
+    }
+    .config-link {
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body class="bg-light">
+<div class="container py-5">
+  <h1 class="mb-4">Manage Notifications for {{ form.title }}</h1>
+  <a href="{% url 'home' %}" class="btn btn-secondary mb-3">Back to Forms</a>
+
+  <!-- Email Confirmation Settings -->
+  <div class="card mt-4">
+    <div class="card-header bg-info text-white">
+      <h4>Email Confirmation Settings</h4>
+    </div>
+    <div class="card-body">
+      <form method="POST" action="{% url 'update_confirmation' form.id %}">
+        {% csrf_token %}
+        <div class="mb-3">
+          <label class="form-label">Confirmation Email Subject</label>
+          <input type="text" class="form-control" name="confirmation_subject" 
+              value="{{ confirmation_notification.confirmation_subject|default:'Your submission confirmation' }}">
+          <small class="text-muted">Use [field_name] placeholders</small>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Confirmation Message</label>
+          <textarea class="form-control" name="confirmation_message" rows="5">{{ confirmation_notification.confirmation_message|default:'Thank you for your submission [user_email]! We have received your information about [field1], [field2].' }}</textarea>
+          <small class="text-muted">Available placeholders: [user_email] and all your form fields</small>
+        </div>
+       
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Save Confirmation Settings</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add New Notification -->
+  <div class="card mb-4 mt-4">
+    <div class="card-header">
+      <h3>Add New Notification</h3>
+    </div>
+    <div class="card-body">
+      <form method="POST" action="{% url 'add_notification' form.id %}">
+        {% csrf_token %}
+        <div class="mb-3">
+          <label class="form-label">SMTP Configuration</label>
+          <select class="form-select" name="smtp_config" required>
+            <option value="">Select your SMTP configuration</option>
+            {% for config in smtp_configs %}
+              <option value="{{ config.id }}">
+                {{ config.email }} ({{ config.smtp_host }}:{{ config.smtp_port }})
+                {% if config.is_verified %}
+                  <span class="badge verified-badge">Verified</span>
+                {% endif %}
+              </option>
+            {% empty %}
+              <option value="" disabled>No verified SMTP configurations available</option>
+            {% endfor %}
+          </select>
+          <small class="text-muted">
+            Only your verified SMTP configurations are shown
+          </small>
+           <div class="mt-2">
+            <a href="{% url 'verify_smtp_sender' %}" class="btn btn-sm btn-outline-primary config-link">
+              Add New SMTP Configuration
+            </a>
+            <a href="{% url 'smtp_settings_list' %}" class="btn btn-sm btn-outline-secondary config-link">
+              Manage SMTP Settings
+            </a>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Receiver Email</label>
+          <input type="email" class="form-control" name="receiver_email" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Email Subject</label>
+          <input type="text" class="form-control" name="subject" value="New submission for {{ form.title }}" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Email Message</label>
+          <textarea class="form-control" name="message" rows="5" required>You have received a new submission for {{ form.title }} from [user_email].</textarea>
+          <small class="text-muted">Use [field_name] to include form field values</small>
+        </div>
+        <button type="submit" class="btn btn-primary">Add Notification</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Existing Notifications -->
+  <h3 class="mt-4">Existing Notifications</h3>
+  {% if notifications %}
+    <div class="table-responsive">
+      <table class="table table-striped">
+        <thead>
+          <tr>
+            <th>Receiver Email</th>
+            <th>SMTP Configuration</th>
+            <th>Subject</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for notification in notifications %}
+          <tr>
+            <td>{{ notification.receiver_email }}</td>
+            <td>
+              {% if notification.smtp_config %}
+                {{ notification.smtp_config.email }}
+                <span class="badge smtp-badge">{{ notification.smtp_config.smtp_host }}</span>
+              {% else %}
+                <span class="text-muted">Not set</span>
+              {% endif %}
+            </td>
+            <td>{{ notification.subject|truncatechars:30 }}</td>
+            <td>
+              <form method="POST" action="{% url 'delete_notification' notification.id %}" class="d-inline">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this notification?')">
+                  Delete
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="alert alert-info">No notifications configured for this form.</div>
+  {% endif %}
+</div>
+</body>
+</html>
