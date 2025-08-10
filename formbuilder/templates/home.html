@@ -63,6 +63,11 @@
           <a class="btn btn-sm btn-outline-info" href="{% url 'manage_notifications' form.id %}">
             <i class="bi bi-bell me-1"></i>Notifications
           </a>
+          {% if form.id %}
+          <a class="btn btn-sm btn-info" href="{% url 'api_docs' form.id %}">
+            API Docs
+          </a>
+          {% endif %}
         </div>
       </li>
       {% empty %}

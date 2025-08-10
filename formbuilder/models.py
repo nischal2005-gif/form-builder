@@ -4,7 +4,9 @@ from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.utils import timezone
 from django.conf import settings
 from django.contrib.auth import get_user_model
-
+from django.core.exceptions import ValidationError
+import re
+import secrets
 FIELD_TYPES = [
     ('text', 'Text'),
     ('email', 'Email'),
@@ -49,9 +51,11 @@ class SMTPSenderConfig(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name='smtp_configs'
+        related_name='smtp_configs',
+        null=True,  # Make user optional
+        blank=True
     )
-    email = models.EmailField(unique=True)
+    email = models.EmailField()
     smtp_host = models.CharField(max_length=255)
     smtp_port = models.IntegerField()
     smtp_username = models.CharField(max_length=255)
@@ -60,15 +64,13 @@ class SMTPSenderConfig(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ('user', 'email')
-
-    def __str__(self):
-        return f"{self.email} ({self.user.email})"
+        unique_together = ('email', 'smtp_host', 'smtp_username', 'smtp_password_encrypted')
 
 class Form(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
+    api_key = models.CharField(max_length=64, unique=True, blank=True,null=True)
     smtp_config = models.ForeignKey(
         SMTPSenderConfig,
         on_delete=models.CASCADE,
@@ -106,6 +108,11 @@ class Form(models.Model):
 
     def __str__(self):
         return self.title
+    
+    def save(self, *args, **kwargs):
+        if not self.api_key:
+            self.api_key = secrets.token_urlsafe(48)  # 64-character key
+        super().save(*args, **kwargs)
 
     def get_receiver_emails(self):
         if self.receiver_emails:
@@ -139,6 +146,18 @@ class Notification(models.Model):
     confirmation_subject = models.CharField(max_length=200, blank=True)
     confirmation_message = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    dynamic_receiver = models.BooleanField(default=False,
+    help_text="Process placeholders in receiver email")
+    
+    def clean(self):
+          if self.dynamic_receiver:
+            if not re.search(r'\[[^\]]+\]', self.receiver_email):
+                raise ValidationError(
+                    "Dynamic receiver requires placeholders like [field_name] in email address"
+                )
+            else:
+              if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', self.receiver_email):
+                raise ValidationError("Invalid email address format")
     
     @property
     def sender_email(self):

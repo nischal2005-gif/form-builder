@@ -38,4 +38,5 @@ urlpatterns = [
     
     # API URLs
     path('api/verify_smtp_sender/', login_required(verify_smtp_sender), name='verify_smtp_sender'),
+    path('forms/<uuid:form_id>/api/', login_required(api_docs), name='api_docs'),
 ]

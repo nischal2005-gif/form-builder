@@ -46,43 +46,37 @@ def clean_subject(subject):
     """Ensure subject line is safe for email headers"""
     subject = ' '.join(str(subject).split())  # Remove all newlines and extra spaces
     return subject[:998]  # RFC 2822 limit
-
-def replace_placeholders(text, user_email, form_data, fields, is_subject=False):
+def replace_placeholders(text, form_data, fields, is_subject=False):
     if not text:
         return ""
-    
-    # Replace [user_email] first
-    text = str(text).replace("[user_email]", str(user_email))
-    
-    # Find all custom placeholders in the template
-    custom_placeholders = set(re.findall(r'\[(.*?)\]', text)) - {'user_email'}
-    
-    for placeholder in custom_placeholders:
-        # Find matching field (case insensitive and ignoring underscores/spaces)
-        matched_field = None
-        for field in fields:
-            field_variations = {
-                field.label,
-                field.label.lower(),
-                field.name,
-                field.label.replace(' ', '_'),
-                field.label.lower().replace(' ', '_')
-            }
-            if placeholder.lower() in {v.lower() for v in field_variations}:
-                matched_field = field
-                break
+
+    # Find all email-type fields and their normalized names
+    email_fields = {
+        field.label.lower().replace(' ', '_'): form_data.get(field.label, "")
+        for field in fields
+        if field.field_type == 'email'
+    }
+
+    # Special case: [email] matches any email field
+    if '[email]' in text.lower():
+        # Use first non-empty email field found
+        email_value = next((v for v in email_fields.values() if v), "")
+        text = text.replace('[email]', email_value)
+
+    # Replace all other placeholders (both email and regular fields)
+    for field in fields:
+        # Create normalized placeholder ([email_address], [contact_email] etc.)
+        placeholder = f'[{field.label.lower().replace(" ", "_")}]'
         
-        if matched_field and matched_field.label in form_data:
-            field_value = form_data[matched_field.label]
-            clean_value = ' '.join(str(field_value).split()) if is_subject else str(field_value)
-            text = text.replace(f'[{placeholder}]', clean_value)
-    
-    # Final cleanup for subjects - remove is_subject parameter
+        if placeholder in text.lower():  # Case-insensitive match
+            value = form_data.get(field.label, "")
+            if field.field_type == 'checkbox' and isinstance(value, list):
+                value = ', '.join(value)
+            text = text.replace(placeholder, str(value))
+
     if is_subject:
-        text = clean_subject(text)  # This is the fixed line
-        if not text.strip():
-            text = "New form submission"
-    
+        text = clean_subject(text)
+
     return text
 
 @login_required
@@ -106,6 +100,7 @@ def dashboard(request):
         'confirmation_emails_count': user_notifications.filter(is_confirmation=True).count(),
         'notification_emails_count': user_notifications.filter(is_confirmation=False).count(),
     })
+import json
 @csrf_exempt
 @login_required
 def form_view(request, form_id):
@@ -115,6 +110,36 @@ def form_view(request, form_id):
     form_obj = get_object_or_404(Form, id=form_id)
     fields = form_obj.fields.all().order_by('order')
 
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.content_type=='application/json':
+        try:
+            data=json.loads(request.body)
+
+            api_key=None
+            for header, value in request.headers.items():
+                if header.lower()=='x-api-key':
+                    api_key=value
+                    break
+            if not api_key:
+                return JsonResponse({
+                    'error':'API key required',
+                    'status':401
+                },status=401)
+            
+            if api_key !=form_obj.api_key:
+                return JsonResponse({
+                    'error':'Invalid API Key',
+                    'status':403
+                },status=403)
+            request.POST=request.POST.copy()
+            for key,value in data.items():
+                request.POST[key]=value
+        except json.JSONDecodeError:
+            return JsonResponse({'error':'Invalid Json'},status=400)
+        
+        request.POST=request.POST.copy()
+        for key, value in data.items():
+            request.POST[key]= value
+
     # Prepare choice fields
     for field in fields:
         if field.field_type in ['radio', 'checkbox'] and field.choices:
@@ -123,7 +148,7 @@ def form_view(request, form_id):
     if request.method == 'POST':
         email_errors = []
 
-        # reCAPTCHA validation (existing code remains the same)
+        # reCAPTCHA validation
         if form_obj.recaptcha_enabled:
             recaptcha_response = request.POST.get('g-recaptcha-response')
             if not recaptcha_response:
@@ -159,25 +184,23 @@ def form_view(request, form_id):
         field_errors = {}
 
         for field in fields:
-            value = request.POST.get(field.label, "")
-            
-            if field.required and not value:
-                field_errors[field.label] = "This field is required"
-                continue
-                
-            if field.regex_validation and value:
-                try:
-                    if not re.fullmatch(field.regex_validation, value):
-                        field_errors[field.label] = field.regex_error_message or f"Invalid format for {field.label}"
-                        continue
-                except re.error:
-                    pass
-            
             if field.field_type == 'checkbox':
                 values = request.POST.getlist(field.label)
                 response = ', '.join(values) if values else ''
             else:
-                response = value
+                response = request.POST.get(field.label, "")
+            
+            if field.required and not response:
+                field_errors[field.label] = "This field is required"
+                continue
+                
+            if field.regex_validation and response:
+                try:
+                    if not re.fullmatch(field.regex_validation, response):
+                        field_errors[field.label] = field.regex_error_message or f"Invalid format for {field.label}"
+                        continue
+                except re.error:
+                    pass
             
             FieldResponse.objects.create(
                 submission=submission,
@@ -194,141 +217,101 @@ def form_view(request, form_id):
                 'error': 'Please correct the errors below.',
             })
 
-        def get_included_fields(notification, fields, is_confirmation=False):
-            """Get fields to include based on notification settings"""
-            field_list = notification.confirmation_included_fields if is_confirmation else notification.included_fields
-            if not field_list:
-                return fields  # Return all fields if none specified
-            
-            included_names = [name.strip() for name in field_list.split(',')]
-            return [field for field in fields if field.name in included_names or field.label.lower().replace(' ', '_') in included_names]
-
-        # Send confirmation email if enabled
-        if form_obj.email_confirmation_required and user_email:
-            confirmation_notification = Notification.objects.filter(
-                form=form_obj,
-                is_confirmation=True
-            ).first()
-            
-            if confirmation_notification:
-                try:
-                    sender_config = (
-                        confirmation_notification.smtp_config or 
-                        form_obj.smtp_config or
-                        SMTPSenderConfig.objects.filter(
-                            user=request.user,
-                            is_verified=True
-                        ).first()
-                    )
-
-                    if not sender_config:
-                        email_errors.append("No valid SMTP configuration found for confirmation email")
-                    else:
-                        # Get fields to include
-                        included_fields = get_included_fields(confirmation_notification, fields, is_confirmation=True)
-                        
-                        # Build form data listing for selected fields
-                        form_data_content = []
-                        for field in included_fields:
-                            response = form_data.get(field.label, "")
-                            form_data_content.append(f"{field.label}: {response}")
-                        
-                        # Confirmation subject (simple, static)
-                        subject = clean_subject(replace_placeholders(
-                            confirmation_notification.confirmation_subject or "Your submission confirmation",
-                            user_email,
-                            form_data,
-                            included_fields,
-                            is_subject=True
-                        )
-                        )
-                        
-                        # Confirmation message body
-                        message = replace_placeholders(
-                            confirmation_notification.confirmation_message or "Thank you for your submission [user_email]!",
-                            user_email,
-                            form_data,
-                            included_fields
-                        )
-                        
-                      
-
-                        confirm_msg = MIMEText(message)
-                        confirm_msg["Subject"] = subject
-                        confirm_msg["From"] = sender_config.email
-                        confirm_msg["To"] = user_email
-                        confirm_msg["Date"] = formatdate(localtime=True)
-                        
-                        with smtplib.SMTP(sender_config.smtp_host, sender_config.smtp_port) as server:
-                            server.starttls()
-                            server.login(sender_config.smtp_username, decrypt(sender_config.smtp_password_encrypted))
-                            server.sendmail(sender_config.email, [user_email], confirm_msg.as_string())
-
-                except Exception as e:
-                    logger.error(f"Confirmation email failed: {str(e)}")
-                    email_errors.append(f"Confirmation email failed: {str(e)}")
-
-        # Send notification emails
+        # Enhanced email sending logic
         notifications = Notification.objects.filter(form=form_obj, is_confirmation=False)
         for notification in notifications:
             try:
                 smtp_config = (
                     notification.smtp_config or
                     form_obj.smtp_config or
-                    SMTPSenderConfig.objects.filter(
-                        user=request.user,
-                        is_verified=True
-                    ).first()
+                    SMTPSenderConfig.objects.filter(is_verified=True).first()
                 )
 
                 if not smtp_config:
                     email_errors.append(f"No SMTP configuration found for notification to {notification.receiver_email}")
                     continue
 
-                # Get fields to include
-                included_fields = get_included_fields(notification, fields)
+                # Process recipient email with flexible placeholder handling
+                recipient_email = notification.receiver_email
                 
-                # Build form data listing for selected fields
-                form_data_content = []
-                for field in included_fields:
-                    response = form_data.get(field.label, "")
-                    form_data_content.append(f"{field.label}: {response}")
+                if '[' in recipient_email and ']' in recipient_email:
+                    placeholder=recipient_email.strip('[]').lower().replace(' ', '_')
+
+                    if placeholder=='email':
+                        recipient_email=next(
+                              (v for v in form_data.values()
+                               if isinstance(v, str) and '@' in v and '.' in v.split('@')[-1]),
+                        )
+                    else:
+                        matching_fields=[
+                            field for field in fields
+                            if field.label.lower().replace(' ', '_') == placeholder 
+                            and field.field_type == 'email'
+                        ]
+                        if matching_fields:
+                            recipient_email=form_data.get(matching_fields[0].label, "")
+                        else:
+                            recipient_email=form_data.get(placeholder.replace('_',''),"")
+                    if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', recipient_email):
+                        available_emails = [
+                                        f"[{field.label.lower().replace(' ', '_')}]" 
+                                        for field in fields
+                                        if field.field_type == 'email'
+                        ]
+                        email_errors.append(
+                                        f"Invalid email address from {notification.receiver_email}. "
+                                        f"Available email fields: {', '.join(available_emails) or 'None'}"
+                        )
+                        continue
+
+
+                  
+                # Get included fields
+                included_fields = fields
+                if notification.included_fields:
+                    included_names = [name.strip().lower().replace(' ', '_') for name in notification.included_fields.split(',')]
+                    included_fields = [
+                        field for field in fields 
+                        if field.name.lower().replace(' ', '_') in included_names or 
+                           field.label.lower().replace(' ', '_') in included_names
+                    ]
                 
-                # Notification subject
+                # Process subject and message with improved placeholder replacement
                 subject = clean_subject(
                     replace_placeholders(
                         notification.subject or "New submission for [form_title]",
-                        user_email,
                         form_data,
                         included_fields,
                         is_subject=True
                     )
                 )
                 
-                # Notification message body
                 message = replace_placeholders(
-                    notification.message or "You have received a new submission from [user_email]",
-                    user_email,
+                    notification.message or "You have received a new submission",
                     form_data,
                     included_fields
                 )
-                
-       
 
-                msg = MIMEText(message)
+                # Create and send email
+                msg = MIMEText(message, 'plain', 'utf-8')
                 msg["Subject"] = subject
                 msg["From"] = smtp_config.email
-                msg["To"] = notification.receiver_email
+                msg["To"] = recipient_email
                 msg["Date"] = formatdate(localtime=True)
                 
                 with smtplib.SMTP(smtp_config.smtp_host, smtp_config.smtp_port) as server:
                     server.starttls()
                     server.login(smtp_config.smtp_username, decrypt(smtp_config.smtp_password_encrypted))
-                    server.sendmail(smtp_config.email, [notification.receiver_email], msg.as_string())
+                    server.sendmail(smtp_config.email, [recipient_email], msg.as_string())
 
+            except smtplib.SMTPException as e:
+                error_msg = f"SMTP error sending to {recipient_email}: {str(e)}"
+                logger.error(error_msg)
+                email_errors.append(error_msg)
             except Exception as e:
-                logger.error(f"Notification to {notification.receiver_email} failed: {str(e)}")
-                email_errors.append(f"Notification to {notification.receiver_email} failed: {str(e)}")
+                error_msg = f"Failed to send to {recipient_email}: {str(e)}"
+                logger.error(error_msg, exc_info=True)
+                email_errors.append(error_msg)
 
         if email_errors:
             return render(request, 'form_view.html', {
@@ -349,8 +332,20 @@ def form_view(request, form_id):
         'form_obj': form_obj,
         'fields': fields,
         'recaptcha_site_key': recaptcha_site_key,
-        'smtp_configs': SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
+        'smtp_configs': SMTPSenderConfig.objects.filter(is_verified=True)
     })
+
+@login_required
+def api_docs(request, form_id):
+    form = get_object_or_404(Form, id=form_id, user=request.user)
+    fields = form.fields.all()
+    
+    return render(request, 'api_docs.html', {
+        'form': form,
+        'fields': fields,
+        'example_data': {f.label: "value" for f in fields}
+    })
+
 @csrf_exempt
 @login_required
 def create_form(request):
@@ -364,7 +359,7 @@ def create_form(request):
             return render(request, 'form.html', {
                 'error': 'Form title is required',
                 'field_formset': FieldFormSet(form_data),
-                'smtp_configs': SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
+                'smtp_configs': SMTPSenderConfig.objects.filter(is_verified=True)
             })
 
         try:
@@ -393,7 +388,7 @@ def create_form(request):
                 return render(request, 'form.html', {
                     'error': 'Invalid field data',
                     'field_formset': field_formset,
-                    'smtp_configs': SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
+                    'smtp_configs': SMTPSenderConfig.objects.filter(is_verified=True)
                 })
 
             messages.success(request, "Form created successfully!")
@@ -403,13 +398,13 @@ def create_form(request):
             return render(request, 'form.html', {
                 'error': f"Database error: {str(e)}",
                 'field_formset': FieldFormSet(form_data),
-                'smtp_configs': SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
+                'smtp_configs': SMTPSenderConfig.objects.filter(is_verified=True)
             })
 
     return render(request, 'form.html', {
         'field_formset': FieldFormSet(queryset=Field.objects.none()),
         'form_obj': Form(),
-        'smtp_configs': SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
+        'smtp_configs': SMTPSenderConfig.objects.filter(is_verified=True)
     })
 
 def edit_form(request, form_id):
@@ -444,7 +439,7 @@ def edit_form(request, form_id):
                 'form_obj': form_obj,
                 'field_formset': FieldFormSet(queryset=form_obj.fields.all()),
                 'error': f"Database error: {str(e)}",
-                'smtp_configs': SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
+                'smtp_configs': SMTPSenderConfig.objects.filter( is_verified=True)
             })
 
         field_formset = FieldFormSet(form_data, queryset=form_obj.fields.all())
@@ -486,7 +481,7 @@ def verify_smtp_sender(request):
         email = request.GET.get("email", "")
         return render(request, "verify_smtp.html", {
             "email": email,
-            "smtp_configs": SMTPSenderConfig.objects.filter(user=request.user,is_verified=True)  # Only show current user's configs
+            "smtp_configs": SMTPSenderConfig.objects.filter(is_verified=True)  # Only show current user's configs
         })
 
     elif request.method == 'POST':
@@ -502,7 +497,7 @@ def verify_smtp_sender(request):
                 return render(request, "verify_smtp.html", {
                     "error": "All fields are required",
                     "email": email,
-                    "smtp_configs": SMTPSenderConfig.objects.filter(user=request.user,is_verified=True)
+                    "smtp_configs": SMTPSenderConfig.objects.filter(is_verified=True)
                 })
 
             # Verify SMTP credentials
@@ -567,7 +562,6 @@ def manage_notifications(request, form_id):
     
     # Get the first verified SMTP config for the user
     smtp_config = SMTPSenderConfig.objects.filter(
-        user=request.user, 
         is_verified=True
     ).first()
     
@@ -592,7 +586,7 @@ def manage_notifications(request, form_id):
         'form': form,
         'notifications': notifications,
         'confirmation_notification': confirmation_notification,
-        'smtp_configs': SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
+        'smtp_configs': SMTPSenderConfig.objects.filter(is_verified=True)
     })
 
 def update_confirmation(request, form_id):
@@ -616,41 +610,36 @@ def update_confirmation(request, form_id):
     return redirect('home')
 
 @csrf_exempt
-
 def add_notification(request, form_id):
     form = get_object_or_404(Form, id=form_id)
     
     if request.method == 'POST':
-        # Get the SMTP config based on the selected email
-        sender_email = request.POST.get('sender_email')
-        smtp_config = None
+        smtp_config_id = request.POST.get('smtp_config')
         
-        if sender_email:
-            try:
-                smtp_config = SMTPSenderConfig.objects.get(email=sender_email)
-            except SMTPSenderConfig.DoesNotExist:
-                pass  # Handle case where config doesn't exist
+        try:
+            smtp_config = SMTPSenderConfig.objects.get(id=smtp_config_id)
+        except SMTPSenderConfig.DoesNotExist:
+            messages.error(request, "Invalid SMTP configuration selected")
+            return redirect('manage_notifications', form_id=form.id)
         
-        # Create notification with smtp_config instead of sender_email
+        # Create notification
         Notification.objects.create(
             form=form,
             smtp_config=smtp_config,
             receiver_email=request.POST.get('receiver_email'),
             subject=request.POST.get('subject'),
             message=request.POST.get('message'),
-            is_confirmation=request.POST.get('is_confirmation') == 'on',
-            confirmation_subject=request.POST.get('confirmation_subject', ''),
-            confirmation_message=request.POST.get('confirmation_message', '')
+            dynamic_receiver='[' in request.POST.get('receiver_email', '') and ']' in request.POST.get('receiver_email', ''),
+            is_confirmation=False
         )
+        
+        messages.success(request, "Notification added successfully")
         return redirect('manage_notifications', form_id=form.id)
     
-    # Get available SMTP configurations for the dropdown
-    smtp_configs = SMTPSenderConfig.objects.all()
     return render(request, 'add_notification.html', {
         'form': form,
-        smtp_configs: SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
+        'smtp_configs': SMTPSenderConfig.objects.filter(is_verified=True)
     })
-
 def delete_notification(request, notification_id):
     notification = get_object_or_404(Notification, id=notification_id)
     form_id = notification.form.id
@@ -808,7 +797,7 @@ class ActivateAccountView(View):
 
 def handlelogin(request):
     if request.user.is_authenticated:
-        return redirect('home')  # Changed from 'dashboard' to 'home'
+        return redirect('home')  
         
     if request.method == "POST":
         email = request.POST.get('email')

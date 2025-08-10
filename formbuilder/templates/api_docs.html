@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container">
+    <h2>API Documentation for {{ form.title }}</h2>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            <h4>API Key</h4>
+        </div>
+        <div class="card-body">
+            <div class="input-group mb-3">
+                <input type="text" class="form-control" id="apiKey" value="{{ form.api_key }}" readonly>
+                <button class="btn btn-outline-secondary" onclick="copyApiKey()">Copy</button>
+            </div>
+            <small class="text-danger">Keep this key secret!</small>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h4>API Endpoint</h4>
+        </div>
+        <div class="card-body">
+            <p><strong>URL:</strong> <code>POST {{ request.build_absolute_uri }}</code></p>
+            <p><strong>Headers:</strong></p>
+            <pre>{
+    "X-API-KEY": "{{ form.api_key }}",
+    "Content-Type": "application/json"
+}</pre>
+            
+            <p><strong>Example Request:</strong></p>
+            <pre>{
+    {% for field in fields %}"{{ field.label }}": "{{ example_data.field.label }}"{% if not forloop.last %},{% endif %}
+    {% endfor %}
+}</pre>
+            
+            <p><strong>Testing with cURL:</strong></p>
+            <pre>curl -X POST {{ request.build_absolute_uri }} \
+-H "X-API-KEY: {{ form.api_key }}" \
+-H "Content-Type: application/json" \
+-d '{% templatetag openbrace %}{% for field in fields %}"{{ field.label }}": "test_value"{% if not forloop.last %}, {% endif %}{% endfor %}{% templatetag closebrace %}'</pre>
+        </div>
+    </div>
+</div>
+
+<script>
+function copyApiKey() {
+    const copyText = document.getElementById("apiKey");
+    copyText.select();
+    document.execCommand("copy");
+    alert("API key copied to clipboard");
+}
+</script>
+{% endblock %}
