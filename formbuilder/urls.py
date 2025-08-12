@@ -15,10 +15,10 @@ urlpatterns = [
     
     # Protected URLs (require login)
     path('dashboard/', login_required(dashboard), name='dashboard'),
-    path('home/', login_required(home), name='home'),  # Changed from root path
+    path('home/', login_required(home), name='home'),  
     
     # Form-related URLs
-    path('forms/', login_required(home), name='forms_home'),  # Alternative if needed
+    path('forms/', login_required(home), name='forms_home'),  
     path('form/create/', login_required(create_form), name='create_form'),
     path('forms/<uuid:form_id>/', login_required(form_view), name='form_view'),
     path('forms/<uuid:form_id>/edit/', login_required(edit_form), name='edit_form'),

@@ -8,13 +8,10 @@ logger = logging.getLogger(__name__)
 class APIKeyAuthMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
-        # Update this pattern to match your actual URL
+        # Match form submission URLs
         self.api_pattern = re.compile(r'^/forms/(?P<form_id>[^/]+)/?$')
 
-
     def __call__(self, request):
-        # Debug logging
-        
         # Check if request matches API pattern
         match = self.api_pattern.match(request.path)
         if match and request.method == 'POST':
@@ -24,7 +21,29 @@ class APIKeyAuthMiddleware:
             try:
                 form = Form.objects.get(id=form_id)
                 
-                # Get API key from headers (case-insensitive) or POST data
+                # DOMAIN VALIDATION - Check if request comes from allowed domain
+                if form.allowed_domains:  # Only check if allowed_domains is set
+                    origin = request.headers.get('Origin') or request.headers.get('Referer')
+                    if not origin:
+                        logger.warning("Missing Origin/Referer header for domain validation")
+                        return JsonResponse({
+                            'error': 'Origin or Referer header required for domain validation',
+                            'status': 403
+                        }, status=403)
+                    
+                    # Extract and clean domain
+                    domain = re.sub(r'^https?://(www\.)?', '', origin.split('/')[0].lower())
+                    domain = re.sub(r':\d+$', '', domain)  # Remove port if present
+                    
+                    if domain not in form.allowed_domains:
+                        logger.warning(f"Domain not allowed: {domain}")
+                        return JsonResponse({
+                            'error': f'Submissions from {domain} are not allowed',
+                            'allowed_domains': form.allowed_domains,
+                            'status': 403
+                        }, status=403)
+                
+                # API KEY VALIDATION
                 api_key = None
                 for header, value in request.headers.items():
                     if header.lower() == 'x-api-key':

@@ -101,14 +101,39 @@ def dashboard(request):
         'notification_emails_count': user_notifications.filter(is_confirmation=False).count(),
     })
 import json
+
 @csrf_exempt
 @login_required
 def form_view(request, form_id):
     if not request.user.is_authenticated:
         return HttpResponseForbidden("You don't have permission")
     
-    form_obj = get_object_or_404(Form, id=form_id)
-    fields = form_obj.fields.all().order_by('order')
+    form_obj=get_object_or_404(Form, id = form_id)
+    fields= form_obj.fields.all().order_by('order')
+
+    if request.method=='POST':
+        origin= request.headers.get('Origin') or request.headers.get('Referer')
+        if not origin and not (request.headers.get('X-Requested-With')=='XMLHttpRequest' or 
+                              request.content_type == 'application/json' ):
+            origin= request.build_absolute_uri('/')
+
+            if origin:
+                domain=re.sub(r'^https?://(www\.)?', '', origin.split('/')[0].lower())
+                domain= re.sub(r':\d+$', '', domain) 
+
+                if form_obj.allowed_domains and domain not in form_obj.allowed_domains:
+                     if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.content_type == 'application/json':
+                         return JsonResponse({
+                             'error':f'Submissions from {domain} are not allowed',
+                             'allowed_domains':form_obj.allowed_domains,
+                             'status':403
+                         },status=403)
+                     else:
+                          return render(request, 'form_view.html', {
+                        'form_obj': form_obj,
+                        'fields': fields,
+                        'error': f'Submissions from {domain} are not allowed'
+                    })
 
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.content_type=='application/json':
         try:
@@ -224,7 +249,7 @@ def form_view(request, form_id):
                 smtp_config = (
                     notification.smtp_config or
                     form_obj.smtp_config or
-                    SMTPSenderConfig.objects.filter(is_verified=True).first()
+                    SMTPSenderConfig.objects.filter(user=request.user, is_verified=True).first()
                 )
 
                 if not smtp_config:
@@ -332,7 +357,7 @@ def form_view(request, form_id):
         'form_obj': form_obj,
         'fields': fields,
         'recaptcha_site_key': recaptcha_site_key,
-        'smtp_configs': SMTPSenderConfig.objects.filter(is_verified=True)
+        'smtp_configs': SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
     })
 
 @login_required
@@ -353,13 +378,20 @@ def create_form(request):
     
     if request.method == 'POST':
         form_data = request.POST.copy()
+
+        allowed_domains=[
+            d.strip()
+            for d in request.POST.get('allowed_domains','').split(',')
+            if d.strip()
+        ]
+
         
         # Validate required fields
         if not form_data.get('title'):
             return render(request, 'form.html', {
                 'error': 'Form title is required',
                 'field_formset': FieldFormSet(form_data),
-                'smtp_configs': SMTPSenderConfig.objects.filter(is_verified=True)
+                'smtp_configs': SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
             })
 
         try:
@@ -367,6 +399,7 @@ def create_form(request):
             form_obj = Form.objects.create(
                 title=form_data.get('title'),
                 description=form_data.get('description', ''),
+                allowed_domains=allowed_domains,
                 # sender_email=form_data.get('sender_email', ''),
                 receiver_emails=form_data.get('receiver_emails', ''),
                 recaptcha_enabled='recaptcha_enabled' in form_data,
@@ -388,7 +421,7 @@ def create_form(request):
                 return render(request, 'form.html', {
                     'error': 'Invalid field data',
                     'field_formset': field_formset,
-                    'smtp_configs': SMTPSenderConfig.objects.filter(is_verified=True)
+                    'smtp_configs': SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
                 })
 
             messages.success(request, "Form created successfully!")
@@ -398,15 +431,16 @@ def create_form(request):
             return render(request, 'form.html', {
                 'error': f"Database error: {str(e)}",
                 'field_formset': FieldFormSet(form_data),
-                'smtp_configs': SMTPSenderConfig.objects.filter(is_verified=True)
+                'smtp_configs': SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
             })
+        
 
     return render(request, 'form.html', {
         'field_formset': FieldFormSet(queryset=Field.objects.none()),
         'form_obj': Form(),
-        'smtp_configs': SMTPSenderConfig.objects.filter(is_verified=True)
+        'smtp_configs': SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
     })
-
+@login_required
 def edit_form(request, form_id):
     form_obj = get_object_or_404(Form, id=form_id)
     FieldFormSet = modelformset_factory(Field, form=FieldForm, extra=1, can_delete=True)
@@ -416,6 +450,13 @@ def edit_form(request, form_id):
         form_obj.title = form_data.get('title')
         form_obj.description = form_data.get('description')
         form_obj.sender_email = form_data.get('sender_email')
+        allowed_domains=[
+            d.strip()
+            for d in request.POST.get('allowed_domains','').split(',')
+            if d.strip()
+        ]
+        form_obj.allowed_domains=allowed_domains
+        form_obj.save()
         
         receiver_emails = form_data.get('receiver_emails', '')
         if receiver_emails:
@@ -460,13 +501,13 @@ def edit_form(request, form_id):
                 'form_obj': form_obj,
                 'field_formset': field_formset,
                 'error': "Please correct the errors below",
-                'smtp_configs': SMTPSenderConfig.objects.filter(is_verified=True)
+                'smtp_configs': SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
             })
 
     return render(request, 'form.html', {
         'form_obj': form_obj,
         'field_formset': FieldFormSet(queryset=form_obj.fields.all()),
-        'smtp_configs': SMTPSenderConfig.objects.filter(is_verified=True)
+        'smtp_configs': SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
     })
 def home(request):
     if not request.user.is_authenticated:
@@ -481,7 +522,7 @@ def verify_smtp_sender(request):
         email = request.GET.get("email", "")
         return render(request, "verify_smtp.html", {
             "email": email,
-            "smtp_configs": SMTPSenderConfig.objects.filter(is_verified=True)  # Only show current user's configs
+            "smtp_configs": SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)  # Only show current user's configs
         })
 
     elif request.method == 'POST':
@@ -497,7 +538,7 @@ def verify_smtp_sender(request):
                 return render(request, "verify_smtp.html", {
                     "error": "All fields are required",
                     "email": email,
-                    "smtp_configs": SMTPSenderConfig.objects.filter(is_verified=True)
+                    "smtp_configs": SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
                 })
 
             # Verify SMTP credentials
@@ -586,7 +627,7 @@ def manage_notifications(request, form_id):
         'form': form,
         'notifications': notifications,
         'confirmation_notification': confirmation_notification,
-        'smtp_configs': SMTPSenderConfig.objects.filter(is_verified=True)
+        'smtp_configs': SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
     })
 
 def update_confirmation(request, form_id):
@@ -638,7 +679,7 @@ def add_notification(request, form_id):
     
     return render(request, 'add_notification.html', {
         'form': form,
-        'smtp_configs': SMTPSenderConfig.objects.filter(is_verified=True)
+        'smtp_configs': SMTPSenderConfig.objects.filter(user=request.user, is_verified=True)
     })
 def delete_notification(request, notification_id):
     notification = get_object_or_404(Notification, id=notification_id)

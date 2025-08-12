@@ -70,6 +70,7 @@ class Form(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
+    allowed_domains=models.JSONField(default=list,help_text="List of domains to submit to this form e.g., ['example.com', 'localhost']")
     api_key = models.CharField(max_length=64, unique=True, blank=True,null=True)
     smtp_config = models.ForeignKey(
         SMTPSenderConfig,

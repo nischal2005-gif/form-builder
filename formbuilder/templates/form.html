@@ -53,7 +53,15 @@
                 <label for="description" class="form-label">Description</label>
                 <textarea class="form-control" id="description" name="description" rows="2">{{ form_obj.description }}</textarea>
             </div>
-
+            <!-- Add this near other form configuration fields -->
+<div class="mb-3">
+    <label for="allowed_domains" class="form-label">Allowed Domains</label>
+    <input type="text" class="form-control" id="allowed_domains" 
+           name="allowed_domains" 
+           value="{{ form_obj.allowed_domains|join:', ' }}"
+           placeholder="example.com, localhost, 127.0.0.1">
+    <small class="text-muted">Comma-separated list of domains allowed to submit to this form</small>
+</div>
             <!-- Form Options -->
             <div class="mb-3 p-3 bg-light rounded">
                 <div class="form-check form-switch mb-2">
