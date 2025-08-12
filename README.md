@@ -49,25 +49,25 @@ This is a Django-based FormBuilder application that enables users to create, edi
    cd formbuilder
 
 2. **Create and activate a virtual environment**
-```bash
+   ```bash
    python -m venv venv
-source venv/bin/activate   
+   source venv/bin/activate   
+
 
 3. **Install Python dependencies**
- ```bash
-Django>=3.2
-cryptography
-requests
-six
+ Django>=3.2
+ cryptography
+ requests
+ six
 
-Install them by using
- ```bash
+4. **Install them by using**
+   ```bash
  pip install -r requirements.txt
 
-4. **Apply Migrations**
- ```bash
-python manage.py migrate
+5. **Apply Migrations**
+  ```bash
+ python manage.py migrate
 
-5. **Run the development Server**
- ```bash
-python manage.py runserver 
+6. **Run the development Server**
+  ```bash
+ python manage.py runserver 
