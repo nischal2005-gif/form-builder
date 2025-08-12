@@ -55,19 +55,19 @@ This is a Django-based FormBuilder application that enables users to create, edi
 
 
 3. **Install Python dependencies**
- Django>=3.2
+    Django>=3.2
  cryptography
  requests
  six
 
 4. **Install them by using**
    ```bash
- pip install -r requirements.txt
+   pip install -r requirements.txt
 
 5. **Apply Migrations**
   ```bash
- python manage.py migrate
+  python manage.py migrate
 
 6. **Run the development Server**
   ```bash
- python manage.py runserver 
+  python manage.py runserver 
