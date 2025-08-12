@@ -21,7 +21,7 @@ This is a Django-based FormBuilder application that enables users to create, edi
   Each form generates a unique API key. Form submissions through the API require the API key in the request header. Additionally, only requests from allowed domains configured by the user are accepted, ensuring secure form submission.
 
 - **Security Features**  
-  Includes CSRF protection, email verification, password reset functionality, and reCAPTCHA integration to protect against spam and unauthorized access.
+  Includes CSRF protection, email verification and reCAPTCHA integration to protect against spam and unauthorized access.
 
 - **Encryption & Security Libraries**  
   Uses `cryptography.fernet` for encryption tasks and secure handling of sensitive data.
