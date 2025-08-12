@@ -132,11 +132,11 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 EMAIL_HOST='smtp.gmail.com'
-EMAIL_HOST_USER='nischalgautam9866@gmail.com'
-EMAIL_HOST_PASSWORD='ddig hktb yuca dbdk'
-EMAIL_PORT=587
+EMAIL_HOST_USER=''
+EMAIL_HOST_PASSWORD=''  #use smtp credentials (this email will be used as a sender to send the verification link) during the signup
+EMAIL_PORT=''
 EMAIL_USE_TLS=True
-EMAIL_BACKEND='django.core.mail.backends.smtp.EmailBackend'
+EMAIL_BACKEND=''
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
