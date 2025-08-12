@@ -69,6 +69,6 @@ This is a Django-based FormBuilder application that enables users to create, edi
   ```bash
   python manage.py migrate
 
-4. **Run the development server**
+5. **Run the development server**
   ```bash
   python manage.py runserver
