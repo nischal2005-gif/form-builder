@@ -35,9 +35,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-(i2ko!7_^v%3f(82k*d(zf0y(xmcr=z6!z7l_8b5u8zj8p17f9'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = []
+DEBUG = os.environ.get("DEBUG", "True") == "True"
+ALLOWED_HOSTS = [
+    os.environ.get("RENDER_EXTERNAL_HOSTNAME", "localhost")
+]
 
 
 # Application definition
@@ -102,18 +103,40 @@ WSGI_APPLICATION = 'project.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
+# DATABASES = {
   
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME':'formbuilder_app',
-        'USER':'postgres',
-        'PASSWORD':'3202',
-        'HOST':'localhost',
-        'PORT':'5432',
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME':'formbuilder_app',
+#         'USER':'postgres',
+#         'PASSWORD':'3202',
+#         'HOST':'localhost',
+#         'PORT':'5432',
 
+#     }
+# }
+import dj_database_url
+import os
+
+# Check if we're in production (on Render) or local development
+if os.environ.get("RENDER"):
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=os.environ.get("DATABASE_URL")
+        )
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': 'formbuilder_app',  # Change with your local database name
+            'USER': 'postgres',         # Your local PostgreSQL username
+            'PASSWORD': '3202',         # Your local PostgreSQL password
+            'HOST': 'localhost',        # Localhost if using local PostgreSQL
+            'PORT': '5432',             # Default PostgreSQL port
+        }
+    }
+
 AUTH_USER_MODEL = 'formbuilder.CustomUser'
 
 # Password validation
