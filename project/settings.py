@@ -36,7 +36,7 @@ SECRET_KEY = 'django-insecure-(i2ko!7_^v%3f(82k*d(zf0y(xmcr=z6!z7l_8b5u8zj8p17f9
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DEBUG", "True") == "True"
-ALLOWED_HOSTS = [
+ALLOWED_HOSTS = ['127.0.0.1','easy-form-dgph.onrender.com',
     os.environ.get("RENDER_EXTERNAL_HOSTNAME", "localhost")
 ]
 
